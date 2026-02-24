@@ -358,8 +358,6 @@ def on_message(client, userdata, msg):
         config_payload = {k: v for k, v in payload.items() if not k.isdigit()}
 
         if config_payload:
-            # Debug logging to see what configuration data is being received
-            print(f"[DEBUG] Received config_payload for device {fname}: {json.dumps(config_payload, indent=2)}", flush=True)
             emit_to_topic_subscribers(
                 'device_config',
                 {'topic': device_topic, 'payload': config_payload},
@@ -369,9 +367,7 @@ def on_message(client, userdata, msg):
             with device_list_lock:
                 # Check nested mode for Zone 1
                 if "mmwave_detection_areas" in config_payload:
-                    # Debug logging to see what we're actually receiving
                     detection_areas = config_payload["mmwave_detection_areas"]
-                    print(f"[DEBUG] Device: {fname}, mmwave_detection_areas value: {detection_areas}, type: {type(detection_areas)}", flush=True)
                     
                     # Fix: Check that the value is not None and is a dict before calling .get()
                     if detection_areas is not None and isinstance(detection_areas, dict):
@@ -383,8 +379,6 @@ def on_message(client, userdata, msg):
                                     has_data = True
                                     break
                         device_list[fname]['use_nested_area1'] = has_data
-                    else:
-                        print(f"[DEBUG] Device: {fname}, mmwave_detection_areas is None or not a dict, skipping nested area check", flush=True)
 
                 # Update standard global zone
                 needs_emit = False
@@ -437,8 +431,12 @@ except Exception as e:
 @socketio.on('connect')
 def handle_connect():
     """Send MQTT status and device list on new client connection."""
+    sid = request.sid
+    print(f"WebSocket client connected: {sid[:8]}", flush=True)
+    device_snapshot = get_device_list_snapshot()
+    print(f"Sending device list: {len(device_snapshot)} devices", flush=True)
     emit('mqtt_status', {'connected': mqtt_connected})
-    emit('device_list', get_device_list_snapshot())
+    emit('device_list', device_snapshot)
 
 
 @socketio.on('disconnect')
