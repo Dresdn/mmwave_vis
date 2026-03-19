@@ -33,6 +33,8 @@ mmwave_vis/zha_quirk/VZM32SN.py
 
 Copy these into your `config/zha_custom_quirks/inovelli/` directory, then restart Home Assistant.
 
+Important: You will need to "Reconfigure" in ZHA after the new Quirk is installed.
+
 ### 2. Configure the Addon
 
 Install the addon using the links in the README, then open the **Configuration** tab on the addon page in HA.
