@@ -103,6 +103,18 @@
         }
         #zhaSetupBanner strong { color: #b39ddb; }
 
+        /* ZHA quirk warning — shown when custom ZHA quirk is not detected */
+        #quirkWarningBanner {
+            display: none;
+            background: rgba(255, 82, 82, 0.12);
+            border-bottom: 1px solid #ff5252;
+            color: #ff8a80;
+            text-align: center;
+            padding: 6px 15px;
+            font-size: 0.85em;
+        }
+        #quirkWarningBanner strong { color: #ff5252; }
+
         #toastContainer {
             position: fixed;
             bottom: 20px;
@@ -237,6 +249,12 @@
         <strong>ZHA Mode</strong> — No devices found yet.
         Ensure the VZM32-SN is paired in ZHA and has been <strong>Reconfigured</strong>
         (ZHA → Device → Reconfigure Device) to establish the mmWave binding.
+    </div>
+
+    <!-- ZHA quirk warning: visible only when stack=zha and custom quirk is not detected -->
+    <div id="quirkWarningBanner">
+        ⚠ <strong>Custom ZHA quirk not detected</strong> — Target reporting and zone commands require the Inovelli VZM32-SN custom ZHA quirk.
+        Reconfigure the device in ZHA after installing the quirk, then force-sync.
     </div>
 
     <div class="header">
@@ -565,9 +583,10 @@
         const mqttStatusDot     = document.getElementById('mqttStatusDot');
         const mqttStatusLabel   = document.getElementById('mqttStatusLabel');
         const toastContainer    = document.getElementById('toastContainer');
-        const targetReportBanner = document.getElementById('targetReportBanner');
-        const zhaSetupBanner    = document.getElementById('zhaSetupBanner');
-        const stackBadge        = document.getElementById('stackBadge');
+        const targetReportBanner  = document.getElementById('targetReportBanner');
+        const zhaSetupBanner     = document.getElementById('zhaSetupBanner');
+        const quirkWarningBanner = document.getElementById('quirkWarningBanner');
+        const stackBadge         = document.getElementById('stackBadge');
 
         const vizXMin = document.getElementById('vizXMin');
         const vizXMax = document.getElementById('vizXMax');
@@ -1071,6 +1090,15 @@
             applyStack(data.stack);
         });
 
+        // ZHA-only: custom quirk installation status
+        socket.on('zha_device_info', function(data) {
+            if (activeStack === 'zha' && data.quirk_ok === false) {
+                quirkWarningBanner.style.display = 'block';
+            } else {
+                quirkWarningBanner.style.display = 'none';
+            }
+        });
+
         socket.on('command_error', function(data) {
             showToast('Error: ' + (data.error || 'Unknown error'), 'error', 5000);
         });
@@ -1129,6 +1157,7 @@
             dataTableBody.innerHTML = '<tr><td colspan="5" class="no-data">No targets detected</td></tr>';
             nonMmwaveWarning.style.display    = 'none';
             targetReportBanner.style.display  = 'none';
+            quirkWarningBanner.style.display  = 'none';
         });
 
         function parseZ2MArea(area) {

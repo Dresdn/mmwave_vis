@@ -557,7 +557,7 @@ class ZHADriver:
             session_topics[sid] = new_topic
         ieee = self._topic_to_ieee(new_topic)
         if ieee:
-            self._zha.set_device(ieee, new_topic)
+            self._zha.set_device(ieee, new_topic, sid=sid)
         else:
             print(f"ZHA: unknown topic {new_topic}", flush=True)
 

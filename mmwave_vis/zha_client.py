@@ -229,7 +229,7 @@ class ZHAClient:
     def stop(self):
         self._stop_event.set()
 
-    def set_device(self, ieee: str, topic: str):
+    def set_device(self, ieee: str, topic: str, sid: str = None):
         """Switch the actively monitored device. Re-emits cached zones."""
         self._accum.clear()
         self._ieee  = ieee
@@ -241,6 +241,13 @@ class ZHAClient:
             cached = dev.get(key)
             if cached is not None:
                 self.socketio.emit(key, {"topic": topic, "payload": cached})
+
+        # Tell the frontend whether the custom ZHA quirk is installed
+        emit_kwargs = {"to": sid} if sid else {}
+        self.socketio.emit("zha_device_info", {
+            "ieee":     ieee,
+            "quirk_ok": dev.get("quirk_ok", True),
+        }, **emit_kwargs)
 
         self.query_areas()
 
@@ -335,10 +342,17 @@ class ZHAClient:
                 else:
                     self.socketio.emit(key, payload)
 
-        # 2. Request fresh zone data from the device
+        # 2. Re-emit quirk status so the banner stays correct after a sync
+        emit_kwargs = {"to": sid} if sid else {}
+        self.socketio.emit("zha_device_info", {
+            "ieee":     self._ieee,
+            "quirk_ok": dev.get("quirk_ok", True),
+        }, **emit_kwargs)
+
+        # 3. Request fresh zone data from the device
         self.query_areas()
 
-        # 3. Read sidebar attribute values from HA entity states (background)
+        # 4. Read sidebar attribute values from HA entity states (background)
         threading.Thread(
             target=self._sync_entity_states,
             args=(dev.get("ha_device_id"), sid),
@@ -529,6 +543,28 @@ class ZHAClient:
             else:
                 friendly_name = base_name
 
+            # ------------------------------------------------------------------
+            # Quirk detection: check whether the custom mmWave ZHA quirk is
+            # installed by looking for cluster 0xFC32 (CLUSTER_MMWAVE) in the
+            # device endpoint clusters.  Fall back to the generic quirk_applied
+            # flag if endpoint data is not in the expected format.
+            # ------------------------------------------------------------------
+            quirk_applied = bool(dev.get("quirk_applied", False))
+            has_mmwave_cluster = False
+            for ep in (dev.get("endpoints") or []):
+                for key in ("input_cluster_ids", "in_cluster_ids", "cluster_ids"):
+                    ids = ep.get(key) or []
+                    if CLUSTER_MMWAVE in ids:
+                        has_mmwave_cluster = True
+                        break
+                if has_mmwave_cluster:
+                    break
+            # Cluster presence is the strongest signal; quirk_applied is fallback
+            quirk_ok = has_mmwave_cluster or quirk_applied
+            if not quirk_ok:
+                print(f"ZHA: WARNING — custom mmWave quirk not detected on {ieee}. "
+                      "Target reporting and zone commands will not work.", flush=True)
+
             if ieee not in self.device_list:
                 print(f"ZHA: discovered {friendly_name} ({ieee})", flush=True)
                 self.device_list[ieee] = {
@@ -536,6 +572,7 @@ class ZHAClient:
                     "topic":              topic,
                     "ieee":               ieee,
                     "ha_device_id":       ha_device_id,
+                    "quirk_ok":           quirk_ok,
                     "interference_zones": [],
                     "detection_zones":    [],
                     "stay_zones":         [],
@@ -736,7 +773,17 @@ class ZHAClient:
 
     @staticmethod
     def _translate_state(raw_state: str, reverse_map: dict | None):
-        """Convert a raw HA state string to the value the frontend expects."""
+        """Convert a raw HA state string to the value the frontend expects.
+
+        ZHA number entities return integer strings ("0", "1", ...).
+        ZHA select entities return display strings ("Disable (default)", "Enable", ...).
+        Both cases are handled here.
+        """
+        if reverse_map is not None:
+            # ZHA select entities: state is already the display string.
+            # Check for an exact match among the known display values.
+            if raw_state in reverse_map.values():
+                return raw_state
         try:
             int_val = int(float(raw_state))
         except (ValueError, TypeError):
