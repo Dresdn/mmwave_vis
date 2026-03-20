@@ -543,24 +543,7 @@ class ZHAClient:
             else:
                 friendly_name = base_name
 
-            # ------------------------------------------------------------------
-            # Quirk detection: check whether the custom mmWave ZHA quirk is
-            # installed by looking for cluster 0xFC32 (CLUSTER_MMWAVE) in the
-            # device endpoint clusters.  Fall back to the generic quirk_applied
-            # flag if endpoint data is not in the expected format.
-            # ------------------------------------------------------------------
-            quirk_applied = bool(dev.get("quirk_applied", False))
-            has_mmwave_cluster = False
-            for ep in (dev.get("endpoints") or []):
-                for key in ("input_cluster_ids", "in_cluster_ids", "cluster_ids"):
-                    ids = ep.get(key) or []
-                    if CLUSTER_MMWAVE in ids:
-                        has_mmwave_cluster = True
-                        break
-                if has_mmwave_cluster:
-                    break
-            # Cluster presence is the strongest signal; quirk_applied is fallback
-            quirk_ok = has_mmwave_cluster or quirk_applied
+            quirk_ok = self._check_quirk_ok(dev)
             if not quirk_ok:
                 print(f"ZHA: WARNING — custom mmWave quirk not detected on {ieee}. "
                       "Target reporting and zone commands will not work.", flush=True)
@@ -770,6 +753,25 @@ class ZHAClient:
                 self.socketio.emit("device_config", payload, to=sid)
             else:
                 self.socketio.emit("device_config", payload)
+
+    @staticmethod
+    def _check_quirk_ok(dev: dict) -> bool:
+        """
+        Return True if the custom Inovelli mmWave ZHA quirk appears to be
+        installed for this device.
+
+        Detection strategy (strongest signal first):
+          1. Cluster 0xFC32 (CLUSTER_MMWAVE) is present in any endpoint's
+             input/in/cluster_ids list — the quirk adds this custom cluster.
+          2. Fall back to the generic quirk_applied flag from the ZHA device
+             registry — True means *some* quirk is applied, which is still a
+             reasonable signal when endpoint data is absent or differently keyed.
+        """
+        for ep in (dev.get("endpoints") or []):
+            for key in ("input_cluster_ids", "in_cluster_ids", "cluster_ids"):
+                if CLUSTER_MMWAVE in (ep.get(key) or []):
+                    return True
+        return bool(dev.get("quirk_applied", False))
 
     @staticmethod
     def _translate_state(raw_state: str, reverse_map: dict | None):
