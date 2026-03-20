@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [3.1.0] - 2026-03-20
+
+### Fixed
+- **Target Reporting banner not showing in ZHA mode:** The banner that warns when Target Info Reporting is disabled was silently dropped for ZHA users. ZHA `select` entities report their state as a display string (e.g. `"Disable (default)"`) rather than an integer string. The previous translation logic called `int(float(raw_state))`, which raised `ValueError` for display strings, causing `mmWaveTargetInfoReport` to be silently omitted from every `device_config` payload — so the banner condition was never triggered. Fixed by checking whether the raw state already matches a known display string before attempting integer conversion.
+
+### Added
+- **ZHA custom quirk detection:** The backend now checks whether the custom Inovelli ZHA quirk is installed when a device is discovered. Detection checks for cluster `0xFC32` (the mmWave custom cluster) in the device's endpoint cluster lists — the strongest indicator — and falls back to ZHA's generic `quirk_applied` flag. A warning banner appears in the UI when the quirk is not detected, explaining that target reporting and zone commands require the custom quirk. The banner is dismissed automatically if a subsequent force-sync confirms the quirk is present.
+- **Unit test suite (116 tests):** New `tests/` directory with pytest covering `validate_parameter`, `safe_int`, `parse_signed_16`, `_translate_state`, and `_check_quirk_ok`. Tests run with `pytest tests/ -v` from the repo root (requires `pip install -r requirements-dev.txt`).
+
+### Changed
+- Pure utility functions (`validate_parameter`, `safe_int`, `parse_signed_16`) extracted from `app.py` into `mmwave_vis/utils.py` to enable isolated unit testing without triggering MQTT or config-file side effects on import.
+- Quirk detection logic extracted into `ZHAClient._check_quirk_ok(dev)` static method for testability.
+- Bumped version to 3.1.0.
+
 ## [2.2.1] - 2025-03-06
 
 ### Fixed
