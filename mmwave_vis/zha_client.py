@@ -217,6 +217,11 @@ class ZHAClient:
 
         self._stop_event = threading.Event()
 
+        # Binding timeout: fires if no zha_event arrives from the monitored
+        # device within BINDING_TIMEOUT_S seconds of selecting it.
+        self.BINDING_TIMEOUT_S = 10.0
+        self._binding_timer: threading.Timer | None = None
+
     # -----------------------------------------------------------------------
     # Public API
     # -----------------------------------------------------------------------
@@ -250,6 +255,10 @@ class ZHAClient:
         }, **emit_kwargs)
 
         self.query_areas()
+
+        # Start binding timeout — if no data arrives within the window,
+        # warn the user that the 0xFC32 binding may be missing.
+        self._start_binding_timer()
 
     def query_areas(self):
         """Send control_id=2 to make the device report all zone configs."""
@@ -358,6 +367,43 @@ class ZHAClient:
             args=(dev.get("ha_device_id"), sid),
             daemon=True
         ).start()
+
+    # -----------------------------------------------------------------------
+    # Internal: Binding timeout
+    # -----------------------------------------------------------------------
+
+    def _start_binding_timer(self):
+        """Cancel any existing timer, then start a new one."""
+        self._cancel_binding_timer()
+        self._binding_timer = threading.Timer(
+            self.BINDING_TIMEOUT_S, self._emit_binding_warning
+        )
+        self._binding_timer.daemon = True
+        self._binding_timer.start()
+
+    def _cancel_binding_timer(self):
+        """Cancel the binding timer if one is running."""
+        if self._binding_timer is not None:
+            self._binding_timer.cancel()
+            self._binding_timer = None
+
+    def _emit_binding_warning(self):
+        """Called by the timer thread when no data has arrived in time."""
+        ieee = self._ieee
+        if not ieee:
+            return
+        print(
+            f"ZHA: WARNING — no data received from {ieee} after "
+            f"{self.BINDING_TIMEOUT_S:.0f}s. Cluster 0xFC32 binding may be "
+            f"missing. Reconfigure the device in ZHA to re-establish it.",
+            flush=True,
+        )
+        self.socketio.emit("zha_binding_warning", {"ieee": ieee, "show": True})
+
+    def _clear_binding_warning(self):
+        """Cancel the timer and dismiss the frontend banner."""
+        self._cancel_binding_timer()
+        self.socketio.emit("zha_binding_warning", {"show": False})
 
     # -----------------------------------------------------------------------
     # Internal: WebSocket lifecycle
@@ -594,6 +640,9 @@ class ZHAClient:
 
         if ieee != self._ieee or not self._topic:
             return
+
+        # Data arrived from the monitored device — binding is working.
+        self._clear_binding_warning()
 
         command = data.get("command")
         args    = data.get("args", {})

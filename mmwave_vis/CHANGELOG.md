@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [3.1.3] - 2026-03-22
+
+### Added
+- **ZHA binding timeout warning (issue #18):** When a ZHA device is selected but no data arrives within 10 seconds, an amber warning banner appears explaining that the 0xFC32 cluster binding may be missing and directing the user to reconfigure the device in ZHA. The banner auto-dismisses when data starts flowing. Addresses the "switches listed, but never connect" scenario where commands go out but reports never come back.
+- **8 binding-timeout tests:** `tests/test_zha_binding_timeout.py` verifies timer start/cancel, device switching, wrong-device events, dismiss-on-data, and idempotent cancel.
+
+### Changed
+- Bumped version to 3.1.3.
+
 ## [3.1.2] - 2026-03-22
 
 ### Fixed

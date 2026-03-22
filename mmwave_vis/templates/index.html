@@ -115,6 +115,17 @@
         }
         #quirkWarningBanner strong { color: #ff5252; }
 
+        #bindingWarningBanner {
+            display: none;
+            background: rgba(255, 152, 0, 0.12);
+            border-bottom: 1px solid #ff9800;
+            color: #ffcc80;
+            text-align: center;
+            padding: 6px 15px;
+            font-size: 0.85em;
+        }
+        #bindingWarningBanner strong { color: #ff9800; }
+
         #toastContainer {
             position: fixed;
             bottom: 20px;
@@ -255,6 +266,12 @@
     <div id="quirkWarningBanner">
         ⚠ <strong>Custom ZHA quirk not detected</strong> — Target reporting and zone commands require the Inovelli VZM32-SN custom ZHA quirk.
         Reconfigure the device in ZHA after installing the quirk, then force-sync.
+    </div>
+
+    <!-- ZHA binding warning: visible when no data received after selecting a device -->
+    <div id="bindingWarningBanner">
+        ⚠ <strong>No data received from device</strong> — The mmWave cluster (0xFC32) binding may be missing.
+        Go to ZHA → Device → <strong>Reconfigure Device</strong> to re-establish the binding, then force-sync.
     </div>
 
     <div class="header">
@@ -585,8 +602,9 @@
         const toastContainer    = document.getElementById('toastContainer');
         const targetReportBanner  = document.getElementById('targetReportBanner');
         const zhaSetupBanner     = document.getElementById('zhaSetupBanner');
-        const quirkWarningBanner = document.getElementById('quirkWarningBanner');
-        const stackBadge         = document.getElementById('stackBadge');
+        const quirkWarningBanner   = document.getElementById('quirkWarningBanner');
+        const bindingWarningBanner = document.getElementById('bindingWarningBanner');
+        const stackBadge           = document.getElementById('stackBadge');
 
         const vizXMin = document.getElementById('vizXMin');
         const vizXMax = document.getElementById('vizXMax');
@@ -1099,6 +1117,15 @@
             }
         });
 
+        // ZHA-only: binding timeout — no data received after selecting a device
+        socket.on('zha_binding_warning', function(data) {
+            if (activeStack === 'zha' && data.show) {
+                bindingWarningBanner.style.display = 'block';
+            } else {
+                bindingWarningBanner.style.display = 'none';
+            }
+        });
+
         socket.on('command_error', function(data) {
             showToast('Error: ' + (data.error || 'Unknown error'), 'error', 5000);
         });
@@ -1157,7 +1184,8 @@
             dataTableBody.innerHTML = '<tr><td colspan="5" class="no-data">No targets detected</td></tr>';
             nonMmwaveWarning.style.display    = 'none';
             targetReportBanner.style.display  = 'none';
-            quirkWarningBanner.style.display  = 'none';
+            quirkWarningBanner.style.display   = 'none';
+            bindingWarningBanner.style.display = 'none';
         });
 
         function parseZ2MArea(area) {
@@ -1366,6 +1394,7 @@
             const data = msg.payload;
             updateTimestamp();
             packetInfo.innerText = `Targets Visible: ${data.targets.length}`;
+            bindingWarningBanner.style.display = 'none';
 
             const currentIds = new Set(data.targets.map(t => t.id));
             Object.keys(targetHistory).forEach(id => { if (!currentIds.has(Number(id))) delete targetHistory[id]; });
