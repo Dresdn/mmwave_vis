@@ -1,5 +1,6 @@
 """Module for Inovelli quirks implementations."""
 
+import asyncio
 import logging
 import struct
 from typing import Any, Optional, Union
@@ -13,6 +14,7 @@ from zigpy.zcl.foundation import (
     ZCLCommandDef,
     ZCLHeader,
 )
+from zigpy.zdo.types import Status as ZDOStatus
 
 from zhaquirks.const import (
     BUTTON,
@@ -1565,6 +1567,26 @@ class InovelliVZM32SNMMWaveCluster(CustomCluster):
         """
         result = await super().bind()
         _LOGGER.debug("%s: ZDP bind result: %s", self.name, result)
+
+        # result is a list/tuple where [0] is the ZDO Status.
+        # If the bind failed, skip sending query_areas — without a binding
+        # entry the device has nowhere to send reports.
+        if result and result[0] != ZDOStatus.SUCCESS:
+            _LOGGER.warning(
+                "%s: ZDP bind to 0xFC32 failed with status %s — "
+                "skipping query_areas; reports will not work until "
+                "the device is re-paired or reconfigured successfully",
+                self.name,
+                result[0],
+            )
+            return result
+
+        # Brief delay so the device can finish processing the new bind entry
+        # before we ask it to start reporting.  Without this, the query_areas
+        # command can arrive before the bind is committed on the device and
+        # get silently dropped — especially right after initial pairing.
+        await asyncio.sleep(0.5)
+
         try:
             await self.request(
                 False,  # cluster-specific command (not general)
