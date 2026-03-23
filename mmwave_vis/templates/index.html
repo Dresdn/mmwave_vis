@@ -65,6 +65,15 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.3; }
         }
+        @keyframes pulse-record {
+            0%, 100% { box-shadow: 0 0 4px #ff5252; }
+            50% { box-shadow: 0 0 12px #ff5252, 0 0 20px rgba(255, 82, 82, 0.4); }
+        }
+        .recording-active {
+            animation: pulse-record 1s infinite;
+            background: #ff5252 !important;
+            border-color: #ff5252 !important;
+        }
 
         #connectionBanner {
             display: none;
@@ -409,6 +418,14 @@
                             <div class="zone-input-group"><label>Z Min (Height)</label><input type="number" id="editZMin" onchange="manualZoneUpdate()"></div>
                             <div class="zone-input-group"><label>Z Max (Height)</label><input type="number" id="editZMax" onchange="manualZoneUpdate()"></div>
                         </div>
+                        <div id="recordingControls" style="margin: 8px 0; display: flex; gap: 5px; align-items: center;">
+                            <button class="cmd-btn" id="btnRecord" style="flex:1; background: #4caf50; color: white; border-color: #4caf50;" onclick="toggleRecording()">&#9679; Record Movement</button>
+                            <span id="recordingStatus" style="font-size: 0.8em; color: #888; min-width: 80px;"></span>
+                        </div>
+                        <div id="recordingPaddingRow" style="display: none; margin-bottom: 8px;">
+                            <label style="font-size: 0.75em; color: #888;">Padding (cm):</label>
+                            <input type="number" id="recordingPadding" value="20" min="0" max="200" style="width: 60px; font-family: monospace; color: #ff9800; font-weight: bold;">
+                        </div>
                         <div style="display:flex; gap: 5px;">
                             <button class="cmd-btn btn-danger" style="flex:1;" onclick="cancelZoneEdit()">Stop Editing</button>
                             <button class="cmd-btn" style="background: #00bcd4; color: #1a1a1a; flex:1;" onclick="applyZoneEdit()">Apply Changes</button>
@@ -664,6 +681,12 @@
         let isEditingZone  = false;
         let editingTarget  = null;
         let draftZoneConfig = null;
+
+        // Recording mode state
+        let isRecording = false;
+        const RECORDING_MAX_POINTS = 5000;
+        let recordingBuffer = [];
+        let recordingBounds = null;
 
         const zoneEditorSelect   = document.getElementById('zoneEditorSelect');
         const zoneEditorRawData  = document.getElementById('zoneEditorRawData');
@@ -980,7 +1003,38 @@
             let t0 = { x: [], y: [], mode: 'markers+text', text: [], textposition: 'top center', marker: { color: '#00bcd4', line: {color: 'white', width: 2} }, type: 'scatter' };
             let t1 = { x: [], y: [], mode: 'lines', line: {color: '#00bcd4', width: 3}, opacity: 0.3, type: 'scatter' };
             if (chartDiv && chartDiv.data && chartDiv.data.length >= 2) { t0 = chartDiv.data[0]; t1 = chartDiv.data[1]; }
-            return [t0, t1, ...getFovTraces(), ...getBackgroundZoneTraces()];
+            return [t0, t1, ...getRecordingTraces(), ...getFovTraces(), ...getBackgroundZoneTraces()];
+        }
+
+        function getRecordingTraces() {
+            if (!isRecording && recordingBuffer.length === 0) return [];
+            const traces = [];
+            if (recordingBuffer.length > 0) {
+                traces.push({
+                    x: recordingBuffer.map(p => p.x),
+                    y: recordingBuffer.map(p => p.y),
+                    mode: 'markers',
+                    marker: { size: 4, color: 'rgba(255, 152, 0, 0.4)', symbol: 'circle' },
+                    type: 'scatter',
+                    hoverinfo: 'skip',
+                    showlegend: false
+                });
+            }
+            if (recordingBounds) {
+                const pad = parseInt(document.getElementById('recordingPadding')?.value) || 0;
+                const xMin = recordingBounds.x_min - pad, xMax = recordingBounds.x_max + pad;
+                const yMin = recordingBounds.y_min - pad, yMax = recordingBounds.y_max + pad;
+                traces.push({
+                    x: [xMin, xMax, xMax, xMin, xMin],
+                    y: [yMin, yMin, yMax, yMax, yMin],
+                    mode: 'lines',
+                    line: { color: 'rgba(255, 152, 0, 0.8)', width: 2, dash: 'dash' },
+                    type: 'scatter',
+                    hoverinfo: 'skip',
+                    showlegend: false
+                });
+            }
+            return traces;
         }
 
         function getChartShapes() {
@@ -1404,6 +1458,26 @@
                 if (targetHistory[t.id].length > HISTORY_LENGTH) targetHistory[t.id].shift();
             });
 
+            // Recording accumulation
+            if (isRecording && recordingBuffer.length < RECORDING_MAX_POINTS) {
+                data.targets.forEach(t => {
+                    if (recordingBuffer.length >= RECORDING_MAX_POINTS) return;
+                    recordingBuffer.push({x: t.x, y: t.y, z: t.z});
+                    if (!recordingBounds) {
+                        recordingBounds = { x_min: t.x, x_max: t.x, y_min: t.y, y_max: t.y, z_min: t.z, z_max: t.z };
+                    } else {
+                        if (t.x < recordingBounds.x_min) recordingBounds.x_min = t.x;
+                        if (t.x > recordingBounds.x_max) recordingBounds.x_max = t.x;
+                        if (t.y < recordingBounds.y_min) recordingBounds.y_min = t.y;
+                        if (t.y > recordingBounds.y_max) recordingBounds.y_max = t.y;
+                        if (t.z < recordingBounds.z_min) recordingBounds.z_min = t.z;
+                        if (t.z > recordingBounds.z_max) recordingBounds.z_max = t.z;
+                    }
+                });
+                document.getElementById('recordingStatus').textContent =
+                    `${recordingBuffer.length} pts` + (recordingBuffer.length >= RECORDING_MAX_POINTS ? ' (max)' : '');
+            }
+
             let historyX = [], historyY = [];
             Object.values(targetHistory).forEach(points => {
                 points.forEach(p => { historyX.push(p.x); historyY.push(p.y); });
@@ -1415,12 +1489,18 @@
             try {
                 if (isEditingZone) {
                     if (isInteracting) return;
-                    Plotly.restyle('chart', {
-                        x: [data.targets.map(t => t.x), historyX],
-                        y: [data.targets.map(t => t.y), historyY],
-                        text: [data.targets.map(t => `ID: ${t.id} [Z:${t.z}cm]`), null],
-                        'marker.size': [sizes, null]
-                    }, [0, 1]);
+                    if (isRecording) {
+                        layout.shapes = getChartShapes();
+                        layout.annotations = getChartAnnotations();
+                        Plotly.react('chart', getEditModeTraces(), layout, chartConfig);
+                    } else {
+                        Plotly.restyle('chart', {
+                            x: [data.targets.map(t => t.x), historyX],
+                            y: [data.targets.map(t => t.y), historyY],
+                            text: [data.targets.map(t => `ID: ${t.id} [Z:${t.z}cm]`), null],
+                            'marker.size': [sizes, null]
+                        }, [0, 1]);
+                    }
                 } else {
                     Plotly.react('chart', [
                         { x: data.targets.map(t => t.x), y: data.targets.map(t => t.y), text: data.targets.map(t => `ID: ${t.id} [Z:${t.z}cm]`), mode: 'markers+text', textposition: 'top center', marker: { size: sizes, color: '#00bcd4', line: {color: 'white', width: 2} }, type: 'scatter' },
@@ -1537,12 +1617,62 @@
             endZoneEdit();
         }
 
+        function toggleRecording() {
+            if (isRecording) { stopRecording(); } else { startRecording(); }
+        }
+
+        function startRecording() {
+            if (!isEditingZone) return;
+            isRecording = true;
+            recordingBuffer = [];
+            recordingBounds = null;
+            const btn = document.getElementById('btnRecord');
+            btn.classList.add('recording-active');
+            btn.innerHTML = '&#9632; Stop Recording';
+            document.getElementById('recordingPaddingRow').style.display = 'block';
+            document.getElementById('recordingStatus').textContent = '0 points';
+        }
+
+        function stopRecording() {
+            isRecording = false;
+            const btn = document.getElementById('btnRecord');
+            btn.classList.remove('recording-active');
+            btn.innerHTML = '&#9679; Record Movement';
+            if (recordingBounds && draftZoneConfig) {
+                const pad = parseInt(document.getElementById('recordingPadding').value) || 0;
+                draftZoneConfig.x_min = recordingBounds.x_min - pad;
+                draftZoneConfig.x_max = recordingBounds.x_max + pad;
+                draftZoneConfig.y_min = recordingBounds.y_min - pad;
+                draftZoneConfig.y_max = recordingBounds.y_max + pad;
+                draftZoneConfig.z_min = recordingBounds.z_min - pad;
+                draftZoneConfig.z_max = recordingBounds.z_max + pad;
+                updateDraftCoordsText();
+                layout.shapes = getChartShapes();
+                try { Plotly.react('chart', getEditModeTraces(), layout, chartConfig); } catch(e) {}
+            }
+            document.getElementById('recordingStatus').textContent =
+                recordingBuffer.length > 0 ? `Done: ${recordingBuffer.length} pts` : 'No points recorded';
+        }
+
         function cancelZoneEdit() {
             endZoneEdit();
             socket.emit('force_sync');
         }
 
         function endZoneEdit() {
+            // Clean up recording state
+            if (isRecording) {
+                isRecording = false;
+                const btn = document.getElementById('btnRecord');
+                if (btn) { btn.classList.remove('recording-active'); btn.innerHTML = '&#9679; Record Movement'; }
+            }
+            recordingBuffer = [];
+            recordingBounds = null;
+            const recPadRow = document.getElementById('recordingPaddingRow');
+            if (recPadRow) recPadRow.style.display = 'none';
+            const recStatus = document.getElementById('recordingStatus');
+            if (recStatus) recStatus.textContent = '';
+
             isEditingZone  = false;
             editingTarget  = null;
             draftZoneConfig = null;
