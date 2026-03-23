@@ -4,7 +4,7 @@
 ## [3.1.4] - 2026-03-23
 
 ### Added
-- **Detection zone recording mode:** New "Record Movement" button in the zone editor lets users walk around a space while the sensor records all detected target positions. Orange dots and a live dashed bounding box appear on the chart. When recording stops, the observed bounds (plus configurable padding, default 20 cm) auto-populate the zone coordinate inputs and update the draggable rectangle — eliminating guesswork when mapping physical spaces to sensor coordinates. Buffer capped at 5,000 points (~2.8 min at typical rates).
+- **Movement Recorder with 3 slots:** New standalone "Movement Recorder" section (separate from the zone editor) lets users record sensor data into up to 3 independent slots. Each slot is color-coded (orange, green, purple) and shows recorded dots with a dashed bounding box on the chart. After recording, use "Apply to Zone" to load any slot's bounds (plus configurable padding, default 20 cm) into the currently-editing zone. Slots persist across zone edits, so one recording session can be reused for multiple zones. Buffer capped at 5,000 points per slot.
 
 ### Changed
 - Bumped version to 3.1.4.
