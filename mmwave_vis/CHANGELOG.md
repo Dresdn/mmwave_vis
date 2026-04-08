@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [3.1.5] - 2026-04-08
+
+### Fixed
+- **"Unknown parameter: None" error when switching recording slots:** The global sidebar change-event handler was catching the recording slot dropdown and firing an `update_parameter` emit with `param: null`. Added `recording` prefix to the handler's exclusion list so recording controls are skipped.
+- **NaN SVG rendering errors in radar chart:** Plotly produced `<path> attribute d: Expected number, "MNaN,NaN..."` errors from three sources: (1) `localStorage` restoration of chart axis ranges used `parseInt()` without NaN guards — a corrupted or empty stored value would propagate NaN into `layout.xaxis.range`; (2) `updateRadarScale()` persisted NaN to `localStorage` when an input field was cleared, corrupting future sessions; (3) device target payloads with NaN coordinates flowed directly into Plotly traces. Fixed with `isNaN()` guards on all three paths.
+
+### Changed
+- Bumped version to 3.1.5.
+
 ## [3.1.4] - 2026-03-23
 
 ### Added

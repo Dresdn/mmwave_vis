@@ -839,10 +839,11 @@
             if (localStorage.getItem('vizShowDetection2') !== null) showDetection2 = localStorage.getItem('vizShowDetection2') === 'true';
             if (localStorage.getItem('vizShowDetection3') !== null) showDetection3 = localStorage.getItem('vizShowDetection3') === 'true';
             if (localStorage.getItem('vizShowDetection4') !== null) showDetection4 = localStorage.getItem('vizShowDetection4') === 'true';
-            if (localStorage.getItem('vizXMin') !== null) chartXMin = parseInt(localStorage.getItem('vizXMin'));
-            if (localStorage.getItem('vizXMax') !== null) chartXMax = parseInt(localStorage.getItem('vizXMax'));
-            if (localStorage.getItem('vizYMin') !== null) chartYMin = parseInt(localStorage.getItem('vizYMin'));
-            if (localStorage.getItem('vizYMax') !== null) chartYMax = parseInt(localStorage.getItem('vizYMax'));
+            let stored;
+            stored = parseInt(localStorage.getItem('vizXMin')); if (!isNaN(stored)) chartXMin = stored;
+            stored = parseInt(localStorage.getItem('vizXMax')); if (!isNaN(stored)) chartXMax = stored;
+            stored = parseInt(localStorage.getItem('vizYMin')); if (!isNaN(stored)) chartYMin = stored;
+            stored = parseInt(localStorage.getItem('vizYMax')); if (!isNaN(stored)) chartYMax = stored;
         } catch(e) { console.log('Storage access error', e); }
 
         const vizToggleInterference = document.getElementById('vizToggleInterference');
@@ -888,8 +889,11 @@
         }
 
         function updateRadarScale() {
-            chartXMin = parseInt(vizXMin.value); chartXMax = parseInt(vizXMax.value);
-            chartYMin = parseInt(vizYMin.value); chartYMax = parseInt(vizYMax.value);
+            const xMin = parseInt(vizXMin.value), xMax = parseInt(vizXMax.value);
+            const yMin = parseInt(vizYMin.value), yMax = parseInt(vizYMax.value);
+            if (isNaN(xMin) || isNaN(xMax) || isNaN(yMin) || isNaN(yMax)) return;
+            chartXMin = xMin; chartXMax = xMax;
+            chartYMin = yMin; chartYMax = yMax;
             localStorage.setItem('vizXMin', chartXMin); localStorage.setItem('vizXMax', chartXMax);
             localStorage.setItem('vizYMin', chartYMin); localStorage.setItem('vizYMax', chartYMax);
             layout.xaxis.range = [chartXMin, chartXMax];
@@ -1149,7 +1153,7 @@
         }
 
         document.querySelectorAll('.sidebar input, .sidebar select').forEach(input => {
-            if (input.id.startsWith('viz') || input.id.startsWith('zoneEditor') || input.id.startsWith('edit')) return;
+            if (input.id.startsWith('viz') || input.id.startsWith('zoneEditor') || input.id.startsWith('edit') || input.id.startsWith('recording')) return;
             input.addEventListener('change', function() {
                 socket.emit('update_parameter', { param: this.getAttribute('data-param'), value: this.value });
             });
@@ -1485,9 +1489,12 @@
             packetInfo.innerText = `Targets Visible: ${data.targets.length}`;
             bindingWarningBanner.style.display = 'none';
 
-            const currentIds = new Set(data.targets.map(t => t.id));
+            // Filter out targets with NaN coordinates to prevent Plotly SVG errors
+            const targets = data.targets.filter(t => !isNaN(t.x) && !isNaN(t.y) && !isNaN(t.z));
+
+            const currentIds = new Set(targets.map(t => t.id));
             Object.keys(targetHistory).forEach(id => { if (!currentIds.has(Number(id))) delete targetHistory[id]; });
-            data.targets.forEach(t => {
+            targets.forEach(t => {
                 if (!targetHistory[t.id]) targetHistory[t.id] = [];
                 targetHistory[t.id].push({x: t.x, y: t.y});
                 if (targetHistory[t.id].length > HISTORY_LENGTH) targetHistory[t.id].shift();
@@ -1497,7 +1504,7 @@
             if (isRecording) {
                 const slot = recordingSlots[activeRecordingSlot];
                 if (slot.buffer.length < RECORDING_MAX_POINTS) {
-                    data.targets.forEach(t => {
+                    targets.forEach(t => {
                         if (slot.buffer.length >= RECORDING_MAX_POINTS) return;
                         slot.buffer.push({x: t.x, y: t.y, z: t.z});
                         if (!slot.bounds) {
@@ -1522,7 +1529,7 @@
                 historyX.push(null); historyY.push(null);
             });
 
-            const sizes = data.targets.map(t => Math.max(8, Math.min(40, 10 + (t.z / 5))));
+            const sizes = targets.map(t => Math.max(8, Math.min(40, 10 + (t.z / 5))));
 
             const hasRecordingData = isRecording || recordingSlots.some(s => s.buffer.length > 0);
 
@@ -1535,22 +1542,22 @@
                         Plotly.react('chart', getEditModeTraces(), layout, chartConfig);
                     } else {
                         Plotly.restyle('chart', {
-                            x: [data.targets.map(t => t.x), historyX],
-                            y: [data.targets.map(t => t.y), historyY],
-                            text: [data.targets.map(t => `ID: ${t.id} [Z:${t.z}cm]`), null],
+                            x: [targets.map(t => t.x), historyX],
+                            y: [targets.map(t => t.y), historyY],
+                            text: [targets.map(t => `ID: ${t.id} [Z:${t.z}cm]`), null],
                             'marker.size': [sizes, null]
                         }, [0, 1]);
                     }
                 } else if (hasRecordingData) {
                     Plotly.react('chart', [
-                        { x: data.targets.map(t => t.x), y: data.targets.map(t => t.y), text: data.targets.map(t => `ID: ${t.id} [Z:${t.z}cm]`), mode: 'markers+text', textposition: 'top center', marker: { size: sizes, color: '#00bcd4', line: {color: 'white', width: 2} }, type: 'scatter' },
+                        { x: targets.map(t => t.x), y: targets.map(t => t.y), text: targets.map(t => `ID: ${t.id} [Z:${t.z}cm]`), mode: 'markers+text', textposition: 'top center', marker: { size: sizes, color: '#00bcd4', line: {color: 'white', width: 2} }, type: 'scatter' },
                         { x: historyX, y: historyY, mode: 'lines', line: {color: '#00bcd4', width: 3}, opacity: 0.3, type: 'scatter' },
                         ...getRecordingTraces(),
                         ...getFovTraces()
                     ], layout);
                 } else {
                     Plotly.react('chart', [
-                        { x: data.targets.map(t => t.x), y: data.targets.map(t => t.y), text: data.targets.map(t => `ID: ${t.id} [Z:${t.z}cm]`), mode: 'markers+text', textposition: 'top center', marker: { size: sizes, color: '#00bcd4', line: {color: 'white', width: 2} }, type: 'scatter' },
+                        { x: targets.map(t => t.x), y: targets.map(t => t.y), text: targets.map(t => `ID: ${t.id} [Z:${t.z}cm]`), mode: 'markers+text', textposition: 'top center', marker: { size: sizes, color: '#00bcd4', line: {color: 'white', width: 2} }, type: 'scatter' },
                         { x: historyX, y: historyY, mode: 'lines', line: {color: '#00bcd4', width: 3}, opacity: 0.3, type: 'scatter' },
                         ...getFovTraces()
                     ], layout);
