@@ -1,8 +1,9 @@
 name: Build and publish Docker image
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -32,8 +33,8 @@ jobs:
       - name: Resolve tags
         id: tags
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            VERSION="${{ github.event.release.tag_name }}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
             echo "tags=ghcr.io/${{ steps.repo.outputs.name }}:${VERSION},ghcr.io/${{ steps.repo.outputs.name }}:latest" >> "$GITHUB_OUTPUT"
           else
             echo "tags=ghcr.io/${{ steps.repo.outputs.name }}:manual" >> "$GITHUB_OUTPUT"
