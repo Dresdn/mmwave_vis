@@ -457,7 +457,13 @@ class Z2MDriver:
             print(f"Z2M: unhandled error on {msg.topic}: {e}", flush=True)
             traceback.print_exc()
 
-    def _process_target_data(self, payload, fname, device_topic):
+    def _emit_targets(self, targets, fname, device_topic, seq):
+        """
+        Throttled emit of parsed target data on the 'new_data' socket event.
+        Shared by both the raw-ZCL path (_process_target_data) and the parsed
+        mmwave_targets path in _process_state_update, so a single 10 Hz cap
+        applies across both in case a Z2M version emits both formats.
+        """
         current_time = time.time()
         with self.device_list_lock:
             last_update = self.device_list.get(fname, {}).get('last_update', 0)
@@ -467,6 +473,13 @@ class Z2MDriver:
             if fname in self.device_list:
                 self.device_list[fname]['last_update'] = current_time
 
+        emit_to_topic_subscribers(
+            'new_data',
+            {'topic': device_topic, 'payload': {'seq': seq, 'targets': targets}},
+            device_topic
+        )
+
+    def _process_target_data(self, payload, fname, device_topic):
         num_targets = safe_int(payload.get("5"), 0)
         if not (0 <= num_targets <= 10):
             return
@@ -485,11 +498,7 @@ class Z2MDriver:
             })
             offset += 9
 
-        emit_to_topic_subscribers(
-            'new_data',
-            {'topic': device_topic, 'payload': {"seq": payload.get("3"), "targets": targets}},
-            device_topic
-        )
+        self._emit_targets(targets, fname, device_topic, seq=payload.get("3"))
 
     def _process_zone_report(self, payload, cmd_id, fname, device_topic):
         num_zones = safe_int(payload.get("5"), 0)
@@ -535,6 +544,16 @@ class Z2MDriver:
             return
 
         emit_to_topic_subscribers('device_config', {'topic': device_topic, 'payload': config_payload}, device_topic)
+
+        # Parsed target info (Z2M 2.9.x+ — issue #27). Older Z2M publishes
+        # raw ZCL bytes handled in _process_target_data; newer Z2M parses
+        # cluster 0xFC32 target reports into a top-level mmwave_targets array
+        # with shape [{id, x, y, z, dop}, ...] — exactly what the frontend
+        # expects. _emit_targets applies the shared 10 Hz throttle so we
+        # don't double-emit if a Z2M version sends both formats.
+        parsed_targets = config_payload.get("mmwave_targets")
+        if isinstance(parsed_targets, list):
+            self._emit_targets(parsed_targets, fname, device_topic, seq=None)
 
         zone_snapshot = None
         needs_emit    = False
@@ -705,7 +724,10 @@ driver.start()
 # ===========================================================================
 
 @socketio.on('connect')
-def handle_connect():
+def handle_connect(auth=None):
+    # python-socketio >= 5.7 passes an `auth` positional arg to the connect
+    # handler. Older versions don't. Accept it optionally for compatibility
+    # with both — the value is unused (ingress handles auth upstream).
     # For ZHA we send optimistic connected=True; ZHAClient will correct it
     # via a mqtt_status emit if the WebSocket is actually down.
     is_connected = True if ZIGBEE_STACK == 'zha' else driver.mqtt_connected
