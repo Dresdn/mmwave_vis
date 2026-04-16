@@ -1,0 +1,25 @@
+services:
+  mmwave-visualizer:
+    image: ghcr.io/nickduvall921/mmwave_vis:latest
+    container_name: mmwave_vis
+    ports:
+      - "5000:5000"
+    volumes:
+      # Optional: persist any runtime data (e.g. custom CA certs) across restarts
+      - ./mmwave_data:/data
+    environment:
+      - ZIGBEE_STACK=z2m            # "z2m" or "zha"
+      - MQTT_BROKER=192.168.1.XX    # Change to your broker IP / hostname
+      - MQTT_PORT=1883
+      - MQTT_USERNAME=              # Optional
+      - MQTT_PASSWORD=              # Optional
+      - MQTT_BASE_TOPIC=zigbee2mqtt
+      # TLS/SSL options (optional)
+      # - MQTT_USE_TLS=true           # Enable TLS (typically port 8883)
+      # - MQTT_TLS_INSECURE=false     # Skip cert verification (not recommended)
+      # - MQTT_TLS_CA_CERT=/data/ca.crt  # Path to custom CA cert (mount via volumes)
+      # ZHA options (only if ZIGBEE_STACK=zha)
+      # - HA_URL=http://homeassistant:8123
+      # - HA_TOKEN=your_long_lived_access_token
+      - DEBUG=false
+    restart: unless-stopped

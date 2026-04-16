@@ -1,6 +1,44 @@
 # Changelog
 
 
+## [3.2.0] - 2026-04-16
+
+### Added
+- **Standalone Docker image:** A pre-built multi-arch image (linux/amd64 + linux/arm64) is now published to `ghcr.io/nickduvall921/mmwave_vis:latest` on every GitHub release. Users running Zigbee2MQTT outside of Home Assistant can now `docker compose up -d` instead of needing the HA Supervisor. A root-level `Dockerfile` and `docker-compose.yml` have been added for users who prefer to build locally.
+- **MQTT TLS/SSL support:** New config keys / env vars `mqtt_use_tls`, `mqtt_tls_insecure`, and `mqtt_tls_ca_cert` (or `MQTT_USE_TLS` / `MQTT_TLS_INSECURE` / `MQTT_TLS_CA_CERT`) enable connections to brokers on port 8883 and similar, with optional custom-CA support for self-signed certificates.
+- **Environment-variable configuration:** All config options (MQTT, ZHA, debug) now fall back to environment variables when `/data/options.json` is absent, so the same codebase runs unchanged as both an HA addon and a standalone Docker container. HA's `options.json` still takes precedence when present. The legacy `Z2M_BASE_TOPIC` env name (from the old `mmWave_vis_docker` repo) is still accepted for backwards compatibility.
+- **Docker build workflow:** `.github/workflows/docker.yml` builds and pushes the multi-arch image to GHCR on each `release: published` event, or on manual dispatch.
+
+### Changed
+- Consolidated the separate `mmWave_vis_docker` repo into this repo. The old repo is deprecated — please migrate to `ghcr.io/nickduvall921/mmwave_vis:latest`.
+- Bumped version to 3.2.0.
+
+## [3.1.5] - 2026-04-08
+
+### Fixed
+- **"Unknown parameter: None" error when switching recording slots:** The global sidebar change-event handler was catching the recording slot dropdown and firing an `update_parameter` emit with `param: null`. Added `recording` prefix to the handler's exclusion list so recording controls are skipped.
+- **NaN SVG rendering errors in radar chart:** Plotly produced `<path> attribute d: Expected number, "MNaN,NaN..."` errors from three sources: (1) `localStorage` restoration of chart axis ranges used `parseInt()` without NaN guards — a corrupted or empty stored value would propagate NaN into `layout.xaxis.range`; (2) `updateRadarScale()` persisted NaN to `localStorage` when an input field was cleared, corrupting future sessions; (3) device target payloads with NaN coordinates flowed directly into Plotly traces. Fixed with `isNaN()` guards on all three paths.
+
+### Changed
+- Bumped version to 3.1.5.
+
+## [3.1.4] - 2026-03-23
+
+### Added
+- **Movement Recorder with 3 slots:** New standalone "Movement Recorder" section (separate from the zone editor) lets users record sensor data into up to 3 independent slots. Each slot is color-coded (orange, green, purple) and shows recorded dots with a dashed bounding box on the chart. After recording, use "Apply to Zone" to load any slot's bounds (plus configurable padding, default 20 cm) into the currently-editing zone. Slots persist across zone edits, so one recording session can be reused for multiple zones. Buffer capped at 5,000 points per slot.
+
+### Changed
+- Bumped version to 3.1.4.
+
+## [3.1.3] - 2026-03-22
+
+### Added
+- **ZHA binding timeout warning (issue #18):** When a ZHA device is selected but no data arrives within 10 seconds, an amber warning banner appears explaining that the 0xFC32 cluster binding may be missing and directing the user to reconfigure the device in ZHA. The banner auto-dismisses when data starts flowing. Addresses the "switches listed, but never connect" scenario where commands go out but reports never come back.
+- **8 binding-timeout tests:** `tests/test_zha_binding_timeout.py` verifies timer start/cancel, device switching, wrong-device events, dismiss-on-data, and idempotent cancel.
+
+### Changed
+- Bumped version to 3.1.3.
+
 ## [3.1.2] - 2026-03-22
 
 ### Fixed

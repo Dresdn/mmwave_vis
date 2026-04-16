@@ -65,6 +65,15 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.3; }
         }
+        @keyframes pulse-record {
+            0%, 100% { box-shadow: 0 0 4px #ff5252; }
+            50% { box-shadow: 0 0 12px #ff5252, 0 0 20px rgba(255, 82, 82, 0.4); }
+        }
+        .recording-active {
+            animation: pulse-record 1s infinite;
+            background: #ff5252 !important;
+            border-color: #ff5252 !important;
+        }
 
         #connectionBanner {
             display: none;
@@ -114,6 +123,17 @@
             font-size: 0.85em;
         }
         #quirkWarningBanner strong { color: #ff5252; }
+
+        #bindingWarningBanner {
+            display: none;
+            background: rgba(255, 152, 0, 0.12);
+            border-bottom: 1px solid #ff9800;
+            color: #ffcc80;
+            text-align: center;
+            padding: 6px 15px;
+            font-size: 0.85em;
+        }
+        #bindingWarningBanner strong { color: #ff9800; }
 
         #toastContainer {
             position: fixed;
@@ -255,6 +275,12 @@
     <div id="quirkWarningBanner">
         ⚠ <strong>Custom ZHA quirk not detected</strong> — Target reporting and zone commands require the Inovelli VZM32-SN custom ZHA quirk.
         Reconfigure the device in ZHA after installing the quirk, then force-sync.
+    </div>
+
+    <!-- ZHA binding warning: visible when no data received after selecting a device -->
+    <div id="bindingWarningBanner">
+        ⚠ <strong>No data received from device</strong> — The mmWave cluster (0xFC32) binding may be missing.
+        Go to ZHA → Device → <strong>Reconfigure Device</strong> to re-establish the binding, then force-sync.
     </div>
 
     <div class="header">
@@ -404,6 +430,34 @@
                     <!-- ZHA: after saving a zone, force sync is needed to confirm -->
                     <div class="zha-only" style="font-size: 0.75em; color: #666; margin-top: 8px;">
                         After applying changes, use Force Sync to confirm the zone was saved to the device.
+                    </div>
+                </div>
+            </details>
+
+            <details class="mobile-collapsed">
+                <summary>Movement Recorder</summary>
+                <div class="config-content">
+                    <div style="margin-bottom: 8px; font-size: 0.9em; color: #ccc;">Record sensor data into slots, then apply to any zone.</div>
+                    <div class="input-row">
+                        <label>Slot:</label>
+                        <select class="control-select" id="recordingSlotSelect">
+                            <option value="0">Slot 1</option>
+                            <option value="1">Slot 2</option>
+                            <option value="2">Slot 3</option>
+                        </select>
+                    </div>
+                    <div style="margin: 8px 0; display: flex; gap: 5px; align-items: center;">
+                        <button class="cmd-btn" id="btnRecord" style="flex:1; background: #4caf50; color: white; border-color: #4caf50;" onclick="toggleRecording()">&#9679; Record Movement</button>
+                        <span id="recordingStatus" style="font-size: 0.8em; color: #888; min-width: 80px;"></span>
+                    </div>
+                    <div class="input-row">
+                        <label style="font-size: 0.75em; color: #888;">Padding (cm):</label>
+                        <input type="number" id="recordingPadding" value="20" min="0" max="200" style="width: 60px; font-family: monospace; color: #ff9800; font-weight: bold;">
+                    </div>
+                    <div id="recordingSlotInfo" style="font-size: 0.8em; color: #888; margin: 6px 0;"></div>
+                    <div style="display: flex; gap: 5px;">
+                        <button class="cmd-btn" style="flex:1; background: #ff9800; color: #1a1a1a;" onclick="applySlotToZone()">Apply to Zone</button>
+                        <button class="cmd-btn btn-danger" style="flex:1;" onclick="clearSlot()">Clear Slot</button>
                     </div>
                 </div>
             </details>
@@ -585,8 +639,9 @@
         const toastContainer    = document.getElementById('toastContainer');
         const targetReportBanner  = document.getElementById('targetReportBanner');
         const zhaSetupBanner     = document.getElementById('zhaSetupBanner');
-        const quirkWarningBanner = document.getElementById('quirkWarningBanner');
-        const stackBadge         = document.getElementById('stackBadge');
+        const quirkWarningBanner   = document.getElementById('quirkWarningBanner');
+        const bindingWarningBanner = document.getElementById('bindingWarningBanner');
+        const stackBadge           = document.getElementById('stackBadge');
 
         const vizXMin = document.getElementById('vizXMin');
         const vizXMax = document.getElementById('vizXMax');
@@ -646,6 +701,26 @@
         let isEditingZone  = false;
         let editingTarget  = null;
         let draftZoneConfig = null;
+
+        // Recording mode state – 3 independent slots
+        let isRecording = false;
+        let activeRecordingSlot = 0;
+        const RECORDING_MAX_POINTS = 5000;
+        const RECORDING_SLOT_COLORS = [
+            'rgba(255, 152, 0, 0.4)',   // orange
+            'rgba(0, 200, 83, 0.4)',    // green
+            'rgba(156, 39, 176, 0.4)'   // purple
+        ];
+        const RECORDING_SLOT_LINE_COLORS = [
+            'rgba(255, 152, 0, 0.8)',
+            'rgba(0, 200, 83, 0.8)',
+            'rgba(156, 39, 176, 0.8)'
+        ];
+        let recordingSlots = [
+            { buffer: [], bounds: null },
+            { buffer: [], bounds: null },
+            { buffer: [], bounds: null }
+        ];
 
         const zoneEditorSelect   = document.getElementById('zoneEditorSelect');
         const zoneEditorRawData  = document.getElementById('zoneEditorRawData');
@@ -764,10 +839,11 @@
             if (localStorage.getItem('vizShowDetection2') !== null) showDetection2 = localStorage.getItem('vizShowDetection2') === 'true';
             if (localStorage.getItem('vizShowDetection3') !== null) showDetection3 = localStorage.getItem('vizShowDetection3') === 'true';
             if (localStorage.getItem('vizShowDetection4') !== null) showDetection4 = localStorage.getItem('vizShowDetection4') === 'true';
-            if (localStorage.getItem('vizXMin') !== null) chartXMin = parseInt(localStorage.getItem('vizXMin'));
-            if (localStorage.getItem('vizXMax') !== null) chartXMax = parseInt(localStorage.getItem('vizXMax'));
-            if (localStorage.getItem('vizYMin') !== null) chartYMin = parseInt(localStorage.getItem('vizYMin'));
-            if (localStorage.getItem('vizYMax') !== null) chartYMax = parseInt(localStorage.getItem('vizYMax'));
+            let stored;
+            stored = parseInt(localStorage.getItem('vizXMin')); if (!isNaN(stored)) chartXMin = stored;
+            stored = parseInt(localStorage.getItem('vizXMax')); if (!isNaN(stored)) chartXMax = stored;
+            stored = parseInt(localStorage.getItem('vizYMin')); if (!isNaN(stored)) chartYMin = stored;
+            stored = parseInt(localStorage.getItem('vizYMax')); if (!isNaN(stored)) chartYMax = stored;
         } catch(e) { console.log('Storage access error', e); }
 
         const vizToggleInterference = document.getElementById('vizToggleInterference');
@@ -813,8 +889,11 @@
         }
 
         function updateRadarScale() {
-            chartXMin = parseInt(vizXMin.value); chartXMax = parseInt(vizXMax.value);
-            chartYMin = parseInt(vizYMin.value); chartYMax = parseInt(vizYMax.value);
+            const xMin = parseInt(vizXMin.value), xMax = parseInt(vizXMax.value);
+            const yMin = parseInt(vizYMin.value), yMax = parseInt(vizYMax.value);
+            if (isNaN(xMin) || isNaN(xMax) || isNaN(yMin) || isNaN(yMax)) return;
+            chartXMin = xMin; chartXMax = xMax;
+            chartYMin = yMin; chartYMax = yMax;
             localStorage.setItem('vizXMin', chartXMin); localStorage.setItem('vizXMax', chartXMax);
             localStorage.setItem('vizYMin', chartYMin); localStorage.setItem('vizYMax', chartYMax);
             layout.xaxis.range = [chartXMin, chartXMax];
@@ -962,7 +1041,39 @@
             let t0 = { x: [], y: [], mode: 'markers+text', text: [], textposition: 'top center', marker: { color: '#00bcd4', line: {color: 'white', width: 2} }, type: 'scatter' };
             let t1 = { x: [], y: [], mode: 'lines', line: {color: '#00bcd4', width: 3}, opacity: 0.3, type: 'scatter' };
             if (chartDiv && chartDiv.data && chartDiv.data.length >= 2) { t0 = chartDiv.data[0]; t1 = chartDiv.data[1]; }
-            return [t0, t1, ...getFovTraces(), ...getBackgroundZoneTraces()];
+            return [t0, t1, ...getRecordingTraces(), ...getFovTraces(), ...getBackgroundZoneTraces()];
+        }
+
+        function getRecordingTraces() {
+            const traces = [];
+            const pad = parseInt(document.getElementById('recordingPadding')?.value) || 0;
+            for (let i = 0; i < 3; i++) {
+                const slot = recordingSlots[i];
+                if (slot.buffer.length === 0) continue;
+                traces.push({
+                    x: slot.buffer.map(p => p.x),
+                    y: slot.buffer.map(p => p.y),
+                    mode: 'markers',
+                    marker: { size: 4, color: RECORDING_SLOT_COLORS[i], symbol: 'circle' },
+                    type: 'scatter',
+                    hoverinfo: 'skip',
+                    showlegend: false
+                });
+                if (slot.bounds) {
+                    const xMin = slot.bounds.x_min - pad, xMax = slot.bounds.x_max + pad;
+                    const yMin = slot.bounds.y_min - pad, yMax = slot.bounds.y_max + pad;
+                    traces.push({
+                        x: [xMin, xMax, xMax, xMin, xMin],
+                        y: [yMin, yMin, yMax, yMax, yMin],
+                        mode: 'lines',
+                        line: { color: RECORDING_SLOT_LINE_COLORS[i], width: 2, dash: 'dash' },
+                        type: 'scatter',
+                        hoverinfo: 'skip',
+                        showlegend: false
+                    });
+                }
+            }
+            return traces;
         }
 
         function getChartShapes() {
@@ -1042,7 +1153,7 @@
         }
 
         document.querySelectorAll('.sidebar input, .sidebar select').forEach(input => {
-            if (input.id.startsWith('viz') || input.id.startsWith('zoneEditor') || input.id.startsWith('edit')) return;
+            if (input.id.startsWith('viz') || input.id.startsWith('zoneEditor') || input.id.startsWith('edit') || input.id.startsWith('recording')) return;
             input.addEventListener('change', function() {
                 socket.emit('update_parameter', { param: this.getAttribute('data-param'), value: this.value });
             });
@@ -1096,6 +1207,15 @@
                 quirkWarningBanner.style.display = 'block';
             } else {
                 quirkWarningBanner.style.display = 'none';
+            }
+        });
+
+        // ZHA-only: binding timeout — no data received after selecting a device
+        socket.on('zha_binding_warning', function(data) {
+            if (activeStack === 'zha' && data.show) {
+                bindingWarningBanner.style.display = 'block';
+            } else {
+                bindingWarningBanner.style.display = 'none';
             }
         });
 
@@ -1157,7 +1277,8 @@
             dataTableBody.innerHTML = '<tr><td colspan="5" class="no-data">No targets detected</td></tr>';
             nonMmwaveWarning.style.display    = 'none';
             targetReportBanner.style.display  = 'none';
-            quirkWarningBanner.style.display  = 'none';
+            quirkWarningBanner.style.display   = 'none';
+            bindingWarningBanner.style.display = 'none';
         });
 
         function parseZ2MArea(area) {
@@ -1366,14 +1487,41 @@
             const data = msg.payload;
             updateTimestamp();
             packetInfo.innerText = `Targets Visible: ${data.targets.length}`;
+            bindingWarningBanner.style.display = 'none';
 
-            const currentIds = new Set(data.targets.map(t => t.id));
+            // Filter out targets with NaN coordinates to prevent Plotly SVG errors
+            const targets = data.targets.filter(t => !isNaN(t.x) && !isNaN(t.y) && !isNaN(t.z));
+
+            const currentIds = new Set(targets.map(t => t.id));
             Object.keys(targetHistory).forEach(id => { if (!currentIds.has(Number(id))) delete targetHistory[id]; });
-            data.targets.forEach(t => {
+            targets.forEach(t => {
                 if (!targetHistory[t.id]) targetHistory[t.id] = [];
                 targetHistory[t.id].push({x: t.x, y: t.y});
                 if (targetHistory[t.id].length > HISTORY_LENGTH) targetHistory[t.id].shift();
             });
+
+            // Recording accumulation into active slot
+            if (isRecording) {
+                const slot = recordingSlots[activeRecordingSlot];
+                if (slot.buffer.length < RECORDING_MAX_POINTS) {
+                    targets.forEach(t => {
+                        if (slot.buffer.length >= RECORDING_MAX_POINTS) return;
+                        slot.buffer.push({x: t.x, y: t.y, z: t.z});
+                        if (!slot.bounds) {
+                            slot.bounds = { x_min: t.x, x_max: t.x, y_min: t.y, y_max: t.y, z_min: t.z, z_max: t.z };
+                        } else {
+                            if (t.x < slot.bounds.x_min) slot.bounds.x_min = t.x;
+                            if (t.x > slot.bounds.x_max) slot.bounds.x_max = t.x;
+                            if (t.y < slot.bounds.y_min) slot.bounds.y_min = t.y;
+                            if (t.y > slot.bounds.y_max) slot.bounds.y_max = t.y;
+                            if (t.z < slot.bounds.z_min) slot.bounds.z_min = t.z;
+                            if (t.z > slot.bounds.z_max) slot.bounds.z_max = t.z;
+                        }
+                    });
+                    document.getElementById('recordingStatus').textContent =
+                        `${slot.buffer.length} pts` + (slot.buffer.length >= RECORDING_MAX_POINTS ? ' (max)' : '');
+                }
+            }
 
             let historyX = [], historyY = [];
             Object.values(targetHistory).forEach(points => {
@@ -1381,20 +1529,35 @@
                 historyX.push(null); historyY.push(null);
             });
 
-            const sizes = data.targets.map(t => Math.max(8, Math.min(40, 10 + (t.z / 5))));
+            const sizes = targets.map(t => Math.max(8, Math.min(40, 10 + (t.z / 5))));
+
+            const hasRecordingData = isRecording || recordingSlots.some(s => s.buffer.length > 0);
 
             try {
                 if (isEditingZone) {
                     if (isInteracting) return;
-                    Plotly.restyle('chart', {
-                        x: [data.targets.map(t => t.x), historyX],
-                        y: [data.targets.map(t => t.y), historyY],
-                        text: [data.targets.map(t => `ID: ${t.id} [Z:${t.z}cm]`), null],
-                        'marker.size': [sizes, null]
-                    }, [0, 1]);
+                    if (hasRecordingData) {
+                        layout.shapes = getChartShapes();
+                        layout.annotations = getChartAnnotations();
+                        Plotly.react('chart', getEditModeTraces(), layout, chartConfig);
+                    } else {
+                        Plotly.restyle('chart', {
+                            x: [targets.map(t => t.x), historyX],
+                            y: [targets.map(t => t.y), historyY],
+                            text: [targets.map(t => `ID: ${t.id} [Z:${t.z}cm]`), null],
+                            'marker.size': [sizes, null]
+                        }, [0, 1]);
+                    }
+                } else if (hasRecordingData) {
+                    Plotly.react('chart', [
+                        { x: targets.map(t => t.x), y: targets.map(t => t.y), text: targets.map(t => `ID: ${t.id} [Z:${t.z}cm]`), mode: 'markers+text', textposition: 'top center', marker: { size: sizes, color: '#00bcd4', line: {color: 'white', width: 2} }, type: 'scatter' },
+                        { x: historyX, y: historyY, mode: 'lines', line: {color: '#00bcd4', width: 3}, opacity: 0.3, type: 'scatter' },
+                        ...getRecordingTraces(),
+                        ...getFovTraces()
+                    ], layout);
                 } else {
                     Plotly.react('chart', [
-                        { x: data.targets.map(t => t.x), y: data.targets.map(t => t.y), text: data.targets.map(t => `ID: ${t.id} [Z:${t.z}cm]`), mode: 'markers+text', textposition: 'top center', marker: { size: sizes, color: '#00bcd4', line: {color: 'white', width: 2} }, type: 'scatter' },
+                        { x: targets.map(t => t.x), y: targets.map(t => t.y), text: targets.map(t => `ID: ${t.id} [Z:${t.z}cm]`), mode: 'markers+text', textposition: 'top center', marker: { size: sizes, color: '#00bcd4', line: {color: 'white', width: 2} }, type: 'scatter' },
                         { x: historyX, y: historyY, mode: 'lines', line: {color: '#00bcd4', width: 3}, opacity: 0.3, type: 'scatter' },
                         ...getFovTraces()
                     ], layout);
@@ -1506,6 +1669,67 @@
             socket.emit('update_parameter', { param: category, value: areaPayload });
             packetInfo.innerText = "Zone Deleted.";
             endZoneEdit();
+        }
+
+        function toggleRecording() {
+            if (isRecording) { stopRecording(); } else { startRecording(); }
+        }
+
+        function startRecording() {
+            activeRecordingSlot = parseInt(document.getElementById('recordingSlotSelect').value);
+            isRecording = true;
+            recordingSlots[activeRecordingSlot] = { buffer: [], bounds: null };
+            const btn = document.getElementById('btnRecord');
+            btn.classList.add('recording-active');
+            btn.innerHTML = '&#9632; Stop Recording';
+            document.getElementById('recordingSlotSelect').disabled = true;
+            document.getElementById('recordingStatus').textContent = '0 points';
+        }
+
+        function stopRecording() {
+            isRecording = false;
+            const btn = document.getElementById('btnRecord');
+            btn.classList.remove('recording-active');
+            btn.innerHTML = '&#9679; Record Movement';
+            document.getElementById('recordingSlotSelect').disabled = false;
+            const slot = recordingSlots[activeRecordingSlot];
+            document.getElementById('recordingStatus').textContent =
+                slot.buffer.length > 0 ? `Slot ${activeRecordingSlot + 1}: ${slot.buffer.length} pts` : 'No points recorded';
+            updateSlotInfo();
+        }
+
+        function applySlotToZone() {
+            const idx = parseInt(document.getElementById('recordingSlotSelect').value);
+            const slot = recordingSlots[idx];
+            if (!slot.bounds) { alert('Slot ' + (idx + 1) + ' has no recorded data.'); return; }
+            if (!isEditingZone || !draftZoneConfig) { alert('Open a zone in the Zone Editor first, then apply.'); return; }
+            const pad = parseInt(document.getElementById('recordingPadding').value) || 0;
+            draftZoneConfig.x_min = slot.bounds.x_min - pad;
+            draftZoneConfig.x_max = slot.bounds.x_max + pad;
+            draftZoneConfig.y_min = slot.bounds.y_min - pad;
+            draftZoneConfig.y_max = slot.bounds.y_max + pad;
+            draftZoneConfig.z_min = slot.bounds.z_min - pad;
+            draftZoneConfig.z_max = slot.bounds.z_max + pad;
+            updateDraftCoordsText();
+            layout.shapes = getChartShapes();
+            try { Plotly.react('chart', getEditModeTraces(), layout, chartConfig); } catch(e) {}
+        }
+
+        function clearSlot() {
+            if (isRecording) return;
+            const idx = parseInt(document.getElementById('recordingSlotSelect').value);
+            recordingSlots[idx] = { buffer: [], bounds: null };
+            document.getElementById('recordingStatus').textContent = '';
+            updateSlotInfo();
+        }
+
+        function updateSlotInfo() {
+            const parts = [];
+            for (let i = 0; i < 3; i++) {
+                const n = recordingSlots[i].buffer.length;
+                if (n > 0) parts.push('Slot ' + (i + 1) + ': ' + n + ' pts');
+            }
+            document.getElementById('recordingSlotInfo').textContent = parts.length > 0 ? parts.join(' · ') : 'No recordings yet.';
         }
 
         function cancelZoneEdit() {

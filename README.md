@@ -28,13 +28,20 @@ ZHA support has just been added experimentally. Requires a custom Quark that I h
 
 ## Installation
 
-### Quick Install
+Two install paths are supported from the same codebase:
+
+- **Home Assistant Addon** — Recommended if you run Home Assistant. Integrates with the Supervisor, uses ingress, and picks up the `SUPERVISOR_TOKEN` automatically for ZHA mode.
+- **Standalone Docker** — For users running Zigbee2MQTT in Docker or on a separate machine from Home Assistant.
+
+### Home Assistant Addon
+
+#### Quick Install
 
 Click the button below to add this repository to your Home Assistant instance:
 
 [![Add Repository](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fnickduvall921%2Fmmwave_vis)
 
-### Manual Install
+#### Manual Install
 
 1. Navigate to **Settings → Add-ons** in your Home Assistant dashboard.
 2. Click the **Add-on Store** button (bottom right).
@@ -44,6 +51,89 @@ Click the button below to add this repository to your Home Assistant instance:
    https://github.com/nickduvall921/mmwave_vis
    ```
 5. Close the dialog. **Inovelli mmWave Visualizer** will appear at the bottom of the Add-on Store.
+
+### Standalone Docker
+
+A pre-built multi-arch image (linux/amd64, linux/arm64) is published to GitHub Container Registry on every release:
+
+```
+ghcr.io/nickduvall921/mmwave_vis:latest
+```
+
+#### 1. Create a `docker-compose.yml`
+
+```yaml
+services:
+  mmwave-visualizer:
+    image: ghcr.io/nickduvall921/mmwave_vis:latest
+    container_name: mmwave_vis
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mmwave_data:/data
+    environment:
+      - ZIGBEE_STACK=z2m
+      - MQTT_BROKER=192.168.1.XX    # Change to your broker IP
+      - MQTT_PORT=1883
+      - MQTT_USERNAME=              # Optional
+      - MQTT_PASSWORD=              # Optional
+      - MQTT_BASE_TOPIC=zigbee2mqtt
+    restart: unless-stopped
+```
+
+#### 2. Start the container
+
+```bash
+docker compose up -d
+```
+
+#### 3. Open the UI
+
+Navigate to `http://<your-ip>:5000`.
+
+#### Environment Variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `ZIGBEE_STACK` | `z2m` or `zha` | `z2m` |
+| `MQTT_BROKER` | MQTT broker host | `core-mosquitto` |
+| `MQTT_PORT` | MQTT broker port | `1883` |
+| `MQTT_USERNAME` | MQTT username | `""` |
+| `MQTT_PASSWORD` | MQTT password | `""` |
+| `MQTT_BASE_TOPIC` | Zigbee2MQTT base topic (also accepts `Z2M_BASE_TOPIC`) | `zigbee2mqtt` |
+| `MQTT_USE_TLS` | Enable TLS/SSL | `false` |
+| `MQTT_TLS_INSECURE` | Skip cert verification (not recommended) | `false` |
+| `MQTT_TLS_CA_CERT` | Path to custom CA certificate file | `""` |
+| `HA_URL` | Home Assistant URL (ZHA mode only) | `http://supervisor` |
+| `HA_TOKEN` | Long-lived access token (ZHA mode only) | `""` |
+| `DEBUG` | Verbose logging | `false` |
+
+#### TLS/SSL
+
+To connect to a TLS-enabled broker (e.g. on port 8883):
+
+```yaml
+environment:
+  - MQTT_BROKER=your-broker
+  - MQTT_PORT=8883
+  - MQTT_USE_TLS=true
+```
+
+For self-signed certificates, mount your CA cert and reference it:
+
+```yaml
+volumes:
+  - ./mmwave_data:/data
+  - ./ca.crt:/data/ca.crt
+
+environment:
+  - MQTT_USE_TLS=true
+  - MQTT_TLS_CA_CERT=/data/ca.crt
+```
+
+> ⚠️ `MQTT_TLS_INSECURE=true` disables all certificate verification. Only use this on trusted local networks — it defeats the purpose of TLS.
+
+> **Migrating from `mmWave_vis_docker`?** The image path has changed from `ghcr.io/nickduvall921/mmwave_vis_docker:main` to `ghcr.io/nickduvall921/mmwave_vis:latest`. The legacy `Z2M_BASE_TOPIC` env var is still accepted as a fallback, but `MQTT_BASE_TOPIC` is preferred.
 
 ## Configuration(Z2M)
 
