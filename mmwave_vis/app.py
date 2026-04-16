@@ -43,20 +43,50 @@ except FileNotFoundError:
     print("No options.json found — using built-in defaults.", flush=True)
     config = {}
 
-ZIGBEE_STACK    = config.get('zigbee_stack', 'z2m').lower().strip()
-DEBUG           = bool(config.get('debug', False))
-MQTT_BROKER     = config.get('mqtt_broker', 'core-mosquitto')
-MQTT_PORT       = int(config.get('mqtt_port', 1883))
-MQTT_USERNAME   = config.get('mqtt_username', '')
-MQTT_PASSWORD   = config.get('mqtt_password', '')
-MQTT_BASE_TOPIC = config.get('mqtt_base_topic', 'zigbee2mqtt')
-HA_URL          = config.get('ha_url', 'http://supervisor')
+def _cfg(key, env_name, default, cast=str):
+    """Resolve a config value.
+
+    Precedence: options.json (HA addon) > environment variable (standalone Docker) > default.
+    Empty strings and None are treated as "not set" so env vars can still override
+    placeholder values written into options.json by the HA UI.
+    """
+    val = config.get(key)
+    if val not in (None, ''):
+        return cast(val)
+    env_val = os.environ.get(env_name)
+    if env_val not in (None, ''):
+        return cast(env_val)
+    return default
+
+
+def _as_bool(v):
+    return str(v).lower() in ('true', '1', 'yes', 'on')
+
+
+ZIGBEE_STACK    = _cfg('zigbee_stack',    'ZIGBEE_STACK',    'z2m').lower().strip()
+DEBUG           = _as_bool(_cfg('debug',  'DEBUG',           False))
+MQTT_BROKER     = _cfg('mqtt_broker',     'MQTT_BROKER',     'core-mosquitto')
+MQTT_PORT       = _cfg('mqtt_port',       'MQTT_PORT',       1883, int)
+MQTT_USERNAME   = _cfg('mqtt_username',   'MQTT_USERNAME',   '')
+MQTT_PASSWORD   = _cfg('mqtt_password',   'MQTT_PASSWORD',   '')
+# Accept both MQTT_BASE_TOPIC and legacy Z2M_BASE_TOPIC (used by the old mmWave_vis_docker repo)
+MQTT_BASE_TOPIC = (
+    _cfg('mqtt_base_topic', 'MQTT_BASE_TOPIC', None)
+    or os.environ.get('Z2M_BASE_TOPIC')
+    or 'zigbee2mqtt'
+)
+HA_URL          = _cfg('ha_url',          'HA_URL',          'http://supervisor')
+
+# MQTT TLS/SSL (for standalone Docker users with TLS-enabled brokers)
+MQTT_USE_TLS      = _as_bool(_cfg('mqtt_use_tls',      'MQTT_USE_TLS',      False))
+MQTT_TLS_INSECURE = _as_bool(_cfg('mqtt_tls_insecure', 'MQTT_TLS_INSECURE', False))
+MQTT_TLS_CA_CERT  = _cfg('mqtt_tls_ca_cert',           'MQTT_TLS_CA_CERT',  '')
 
 # SUPERVISOR_TOKEN is auto-injected by HA when homeassistant_api: true is set
 # in config.yaml. The ha_token config field is a manual fallback — generate a
 # long-lived access token from your HA profile page if needed.
 _supervisor_token = os.environ.get('SUPERVISOR_TOKEN', '')
-_config_token     = config.get('ha_token', '')
+_config_token     = config.get('ha_token', '') or os.environ.get('HA_TOKEN', '')
 HA_TOKEN          = _supervisor_token or _config_token
 
 # ---------------------------------------------------------------------------
@@ -64,6 +94,15 @@ HA_TOKEN          = _supervisor_token or _config_token
 # ---------------------------------------------------------------------------
 print(f"Zigbee stack : {ZIGBEE_STACK}", flush=True)
 print(f"Debug mode   : {'ON' if DEBUG else 'OFF'}", flush=True)
+if ZIGBEE_STACK == 'z2m':
+    print(f"MQTT broker  : {MQTT_BROKER}:{MQTT_PORT}", flush=True)
+    print(f"MQTT topic   : {MQTT_BASE_TOPIC}", flush=True)
+    if MQTT_USE_TLS:
+        tls_note = f"enabled (insecure={'yes' if MQTT_TLS_INSECURE else 'no'}"
+        if MQTT_TLS_CA_CERT:
+            tls_note += f", ca={MQTT_TLS_CA_CERT}"
+        tls_note += ")"
+        print(f"MQTT TLS     : {tls_note}", flush=True)
 
 if ZIGBEE_STACK == 'zha':
     print(f"ZHA ha_url   : {HA_URL}", flush=True)
@@ -137,6 +176,13 @@ class Z2MDriver:
         self._client = mqtt.Client()
         if MQTT_USERNAME and MQTT_PASSWORD:
             self._client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+        if MQTT_USE_TLS:
+            if MQTT_TLS_CA_CERT:
+                self._client.tls_set(ca_certs=MQTT_TLS_CA_CERT)
+            else:
+                self._client.tls_set()
+            if MQTT_TLS_INSECURE:
+                self._client.tls_insecure_set(True)
         self._client.on_connect    = self._on_connect
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message    = self._on_message

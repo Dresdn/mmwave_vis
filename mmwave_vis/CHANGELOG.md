@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [3.2.0] - 2026-04-16
+
+### Added
+- **Standalone Docker image:** A pre-built multi-arch image (linux/amd64 + linux/arm64) is now published to `ghcr.io/nickduvall921/mmwave_vis:latest` on every GitHub release. Users running Zigbee2MQTT outside of Home Assistant can now `docker compose up -d` instead of needing the HA Supervisor. A root-level `Dockerfile` and `docker-compose.yml` have been added for users who prefer to build locally.
+- **MQTT TLS/SSL support:** New config keys / env vars `mqtt_use_tls`, `mqtt_tls_insecure`, and `mqtt_tls_ca_cert` (or `MQTT_USE_TLS` / `MQTT_TLS_INSECURE` / `MQTT_TLS_CA_CERT`) enable connections to brokers on port 8883 and similar, with optional custom-CA support for self-signed certificates.
+- **Environment-variable configuration:** All config options (MQTT, ZHA, debug) now fall back to environment variables when `/data/options.json` is absent, so the same codebase runs unchanged as both an HA addon and a standalone Docker container. HA's `options.json` still takes precedence when present. The legacy `Z2M_BASE_TOPIC` env name (from the old `mmWave_vis_docker` repo) is still accepted for backwards compatibility.
+- **Docker build workflow:** `.github/workflows/docker.yml` builds and pushes the multi-arch image to GHCR on each `release: published` event, or on manual dispatch.
+
+### Changed
+- Consolidated the separate `mmWave_vis_docker` repo into this repo. The old repo is deprecated — please migrate to `ghcr.io/nickduvall921/mmwave_vis:latest`.
+- Bumped version to 3.2.0.
+
 ## [3.1.5] - 2026-04-08
 
 ### Fixed
