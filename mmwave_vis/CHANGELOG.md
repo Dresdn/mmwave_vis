@@ -1,6 +1,17 @@
 # Changelog
 
 
+## [3.2.1] - 2026-04-16
+
+### Fixed
+- **HA addon install failing with "base name ($BUILD_FROM) should not be blank"** — `mmwave_vis/build.yaml` was missing, so the supervisor couldn't tell newer BuildKit which base image to substitute for `ARG BUILD_FROM`. Pinned `ghcr.io/home-assistant/{aarch64,amd64}-base:3.21`.
+- **Issue #27 — radar empty on Z2M 2.9.x+:** Z2M ≥ 2.9.x now parses cluster `0xFC32` target reports into a top-level `mmwave_targets` array instead of forwarding raw ZCL bytes. The Z2M driver only recognized the raw format, so the frontend's `new_data` event never fired and the radar stayed empty. Zones kept working because they're rebuilt from the flat `mmWaveWidthMin/Max`-style config keys. Added a parsed-`mmwave_targets` path that shares a 10 Hz throttle with the raw path.
+- **`TypeError: handle_connect() takes 0 positional arguments but 1 was given`** on every browser socket.io handshake — `python-socketio` ≥ 5.7 (which `flask-socketio==5.5.1` resolves to) passes an `auth` arg to the `connect` handler. Handler now accepts `auth=None`; value is unused (ingress handles auth upstream).
+- **Docker publish workflow was never firing on releases** — releases created by another workflow using the default `GITHUB_TOKEN` do not emit downstream `release: published` events. Switched the trigger to `push: tags: ['v*']` so every release tag reliably kicks off the image build. Added a `tag` input to `workflow_dispatch` so past tags can be retroactively published: `gh workflow run docker.yml --ref main -f tag=vX.Y.Z`.
+
+### Changed
+- Bumped version to 3.2.1.
+
 ## [3.2.0] - 2026-04-16
 
 ### Added
