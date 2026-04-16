@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to build and publish (e.g. v3.2.0). Leave blank for :manual build from main."
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -15,6 +20,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: docker/setup-qemu-action@v3
 
@@ -32,9 +39,16 @@ jobs:
 
       - name: Resolve tags
         id: tags
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+          VERSION=""
+          if [[ -n "$INPUT_TAG" ]]; then
+            VERSION="$INPUT_TAG"
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          if [[ -n "$VERSION" ]]; then
             echo "tags=ghcr.io/${{ steps.repo.outputs.name }}:${VERSION},ghcr.io/${{ steps.repo.outputs.name }}:latest" >> "$GITHUB_OUTPUT"
           else
             echo "tags=ghcr.io/${{ steps.repo.outputs.name }}:manual" >> "$GITHUB_OUTPUT"
