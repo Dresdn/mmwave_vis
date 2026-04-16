@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
 
     steps:
       - uses: actions/checkout@v4
@@ -54,3 +55,16 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}
           name: v${{ steps.version.outputs.version }}
           body: ${{ steps.changelog.outputs.body }}
+
+      # Tag pushes performed by the default GITHUB_TOKEN do NOT trigger the
+      # docker workflow's `push: tags` trigger (downstream-workflow safeguard).
+      # workflow_dispatch IS exempt from that safeguard, so kick off the
+      # Docker build explicitly here. See docs:
+      # https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow
+      - name: Trigger Docker image build
+        if: steps.check_tag.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh workflow run docker.yml --ref main -f tag="v${VERSION}"
