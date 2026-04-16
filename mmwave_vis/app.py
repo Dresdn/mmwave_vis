@@ -433,10 +433,20 @@ class Z2MDriver:
                 device_topic = self.device_list[fname]['topic']
 
             # --- Raw ZCL byte packets (cluster 0xFC32) ---
+            # Z2M 2.9+ publishes a top-level parsed `mmwave_targets` array
+            # AND still leaves the raw ZCL bytes in numbered keys of the
+            # same message. In 2.9 the byte layout at offset >=6 no longer
+            # matches the legacy format, so decoding it yields garbage
+            # coordinates. Worse, because it runs first it claims the 10 Hz
+            # throttle slot and the correct parsed path (handled in
+            # _process_state_update) gets silently dropped. Skip the raw
+            # target decode whenever parsed targets are present and let the
+            # parsed path be authoritative.
+            has_parsed_targets = isinstance(payload.get("mmwave_targets"), list)
             is_raw = (payload.get("0") == 29 and payload.get("1") == 47 and payload.get("2") == 18)
             if is_raw:
                 cmd_id = payload.get("4")
-                if cmd_id == 1:
+                if cmd_id == 1 and not has_parsed_targets:
                     try:
                         self._process_target_data(payload, fname, device_topic)
                     except Exception as e:

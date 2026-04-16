@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [3.2.2] - 2026-04-16
+
+### Fixed
+- **Live target tracking still empty / jumpy on Z2M 2.9.x+ (follow-up to 3.2.1):** when Z2M publishes a state message, it contains *both* the parsed `mmwave_targets` array *and* the legacy raw ZCL byte keys (`"0": 29, "1": 47, "2": 18, ...`). In Z2M 2.9+ the raw-byte layout at offset ≥ 6 is no longer the legacy target-report format, so decoding it yields garbage coordinates. Worse, the raw path ran first and claimed the shared 10 Hz throttle slot, silently dropping the correct parsed emit that 3.2.1 added. `on_message` now skips the raw `_process_target_data` call whenever parsed `mmwave_targets` is present in the same payload, letting the parsed path be authoritative. Zone decoding (cmd_id 2/3/4) is unaffected.
+
+### Changed
+- Bumped version to 3.2.2.
+
 ## [3.2.1] - 2026-04-16
 
 ### Fixed
