@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [3.2.3] - 2026-04-23
+
+### Fixed
+- **Issue #26 — Zone 1 occupancy not displayed:** the "Area 1 (Primary)" row under Live Sensors was actually wired to the device's global `occupancy` attribute (OR of all zones), and no `area1Val` element existed in the Zone Status section — so the JS loop that updates `area{1..4}Val` from `mmwave_area{i}_occupancy` silently skipped Zone 1. Relabeled the Live Sensors row to "Global Occupancy" (accurate to what it shows) and added the missing `area1Val` element so Zone 1's real per-area occupancy now renders alongside Zones 2–4.
+
+### Changed
+- Bumped version to 3.2.3.
+
 ## [3.2.2] - 2026-04-16
 
 ### Fixed
